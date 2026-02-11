@@ -6,51 +6,62 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
-#include <QDebug>
+#include <iostream>
+
+// Helper to force logs to flush immediately (DigitalOcean logs can be laggy)
+void log(const QString &msg) {
+    std::cout << qPrintable(msg) << std::endl;
+}
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
 
-    // Force logs to flush immediately so they appear in DigitalOcean console
-    setbuf(stdout, NULL);
-
     QHttpServer httpServer;
 
-    // --- Debug: Print current environment ---
-    qDebug() << "Starting server...";
-    qDebug() << "Current Working Directory:" << QDir::currentPath();
+    log("--- SERVER STARTING ---");
+    log("Current Working Directory: " + QDir::currentPath());
 
     if (QFile::exists("index.html")) {
-        qDebug() << "SUCCESS: index.html found at:" << QFileInfo("index.html").absoluteFilePath();
+        log("SUCCESS: index.html found.");
     } else {
-        qCritical() << "ERROR: index.html NOT found in current directory!";
+        log("CRITICAL ERROR: index.html NOT found!");
     }
 
-    // --- 1. The RAM Database ---
-    QJsonArray ramDatabase = {"Qt6", "is", "running", "on", "DigitalOcean", "Fixed!"};
+    // 1. RAM Database
+    QJsonArray ramDatabase = {"Qt6", "is", "working", "perfectly"};
 
-    // --- 2. Route: Serve the HTML Website ---
+    // 2. Main Route
     httpServer.route("/", []() {
-        qDebug() << "Request received for root '/'";
+        log("Request received for route: /");
         return QHttpServerResponse::fromFile("index.html");
     });
 
-    // --- 3. Route: The API Endpoint ---
+    // 3. API Route
     httpServer.route("/api/data", [&ramDatabase]() {
-        qDebug() << "Request received for API data";
+        log("Request received for route: /api/data");
         return QHttpServerResponse(QJsonDocument(ramDatabase).toJson(),
                                    QHttpServerResponse::StatusCode::Ok);
     });
 
-    // --- 4. Start Listening ---
-    // Use QHostAddress::AnyIPv4 to ensure we bind to 0.0.0.0 (safest for Docker)
-    const auto port = httpServer.listen(QHostAddress::AnyIPv4, 8080);
+    // 4. FIX: Catch-all handler
+    // If the request hits the server but doesn't match "/" or "/api/data",
+    // this will print exactly what path the browser is asking for.
+    httpServer.setMissingHandler([](const QHttpServerRequest &request) {
+        log("WARNING: 404 Missing Handler triggered for path: " + request.url().path());
+        return QHttpServerResponse::StatusCode::NotFound;
+    });
+
+    // 5. Start Listening
+    // Switched back to QHostAddress::Any to support both IPv4 and IPv6
+    const auto port = httpServer.listen(QHostAddress::Any, 8080);
+
     if (!port) {
-        qCritical() << "Server failed to listen on port 8080.";
+        log("CRITICAL: Failed to listen on port 8080");
         return -1;
     }
 
-    qDebug() << "Server running on port" << port;
+    log("Server running on port " + QString::number(port));
+
     return app.exec();
 }
