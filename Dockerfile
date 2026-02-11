@@ -3,7 +3,7 @@ FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. Install dependencies (Cached)
+# 1. Install dependencies (This layer is CACHED and won't re-run)
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -11,13 +11,16 @@ RUN apt-get update && apt-get install -y \
     qt6-httpserver-dev \
     qt6-websockets-dev
 
-# 2. Configure CMake (Cached unless CMakeLists.txt changes)
 WORKDIR /build
-COPY CMakeLists.txt /src/CMakeLists.txt
-RUN cmake -S /src -B /build
 
-# 3. Compile C++ (Cached unless main.cpp changes)
+# 2. Copy Source Code
+# We copy CMakeLists.txt AND main.cpp here.
+# CMake needs main.cpp to exist before it can configure the project.
+COPY CMakeLists.txt /src/CMakeLists.txt
 COPY main.cpp /src/main.cpp
+
+# 3. Configure and Compile
+RUN cmake -S /src -B /build
 RUN make -j$(nproc)
 
 # --- STAGE 2: Run the Server (Lightweight) ---
