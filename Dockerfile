@@ -1,9 +1,9 @@
-# --- STAGE 1: Build the Server ---
+# --- STAGE 1: Build the Server (Heavy Lifting) ---
 FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. Install dependencies (These rarely change, so they will be CACHED)
+# 1. Install dependencies (Cached)
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -11,26 +11,21 @@ RUN apt-get update && apt-get install -y \
     qt6-httpserver-dev \
     qt6-websockets-dev
 
-# 2. Copy ONLY the build config first
+# 2. Configure CMake (Cached unless CMakeLists.txt changes)
 WORKDIR /build
 COPY CMakeLists.txt /src/CMakeLists.txt
-
-# 3. Pre-configure CMake (This creates the Makefiles, usually cached if CMakeLists doesn't change)
 RUN cmake -S /src -B /build
 
-# 4. NOW copy the actual source code (This changes frequently!)
+# 3. Compile C++ (Cached unless main.cpp changes)
 COPY main.cpp /src/main.cpp
-COPY index.html /src/index.html
-
-# 5. Compile (Only this part runs when you change code)
 RUN make -j$(nproc)
 
-# --- STAGE 2: Run the Server ---
+# --- STAGE 2: Run the Server (Lightweight) ---
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install runtime libs (Cached unless you change this list)
+# Install runtime libs
 RUN apt-get update && apt-get install -y \
     libqt6httpserver6 \
     libqt6websockets6 \
@@ -39,7 +34,11 @@ RUN apt-get update && apt-get install -y \
     && update-mime-database /usr/share/mime \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy the binary from the builder
 COPY --from=builder /build/QtServer /app/server
+
+# Copy the HTML file ONLY here.
+# Benefit: Changing HTML does NOT trigger a C++ recompile!
 COPY index.html /app/index.html
 
 WORKDIR /app
