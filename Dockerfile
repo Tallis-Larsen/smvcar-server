@@ -3,7 +3,7 @@ FROM ubuntu:24.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
-    build-essential cmake qt6-base-dev qt6-httpserver-dev
+    build-essential cmake qt6-base-dev qt6-httpserver-dev qt6-websockets-dev
 
 COPY CMakeLists.txt /src/CMakeLists.txt
 COPY main.cpp /src/main.cpp
