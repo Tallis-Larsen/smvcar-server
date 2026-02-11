@@ -50,15 +50,14 @@ int main(int argc, char *argv[])
                                    QHttpServerResponse::StatusCode::Ok);
     });
 
-    // 4. FIX: Corrected signature for setMissingHandler
-    // This now accepts the 'responder' object which we use to send the error.
+    // 4. FIX: Corrected method call for QHttpServerResponder
+    // The correct method is .write(), not .sendStatusCode()
     httpServer.setMissingHandler([](const QHttpServerRequest &request, QHttpServerResponder &&responder) {
         log("WARNING: 404 Missing Handler triggered for path: " + request.url().path());
-        responder.sendStatusCode(QHttpServerResponse::StatusCode::NotFound);
+        responder.write(QHttpServerResponse::StatusCode::NotFound);
     });
 
     // 5. Start Listening
-    // We use QHostAddress::Any to ensure we listen on all interfaces (IPv4/IPv6)
     const auto port = httpServer.listen(QHostAddress::Any, 8080);
 
     if (!port) {
