@@ -1,6 +1,7 @@
 #include <QCoreApplication>
 #include <QHttpServer>
 #include <QHttpServerResponse>
+#include <QHttpServerResponder>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QFile>
@@ -22,14 +23,19 @@ int main(int argc, char *argv[])
     log("--- SERVER STARTING ---");
     log("Current Working Directory: " + QDir::currentPath());
 
+    // Check for the file immediately on startup
     if (QFile::exists("index.html")) {
-        log("SUCCESS: index.html found.");
+        log("SUCCESS: index.html found at: " + QFileInfo("index.html").absoluteFilePath());
     } else {
-        log("CRITICAL ERROR: index.html NOT found!");
+        log("CRITICAL ERROR: index.html NOT found! Listing directory...");
+        QDir dir(".");
+        for (const QString &entry : dir.entryList()) {
+            log(" - " + entry);
+        }
     }
 
     // 1. RAM Database
-    QJsonArray ramDatabase = {"Qt6", "is", "working", "perfectly"};
+    QJsonArray ramDatabase = {"Qt6", "is", "working", "perfectly", "on", "App Platform"};
 
     // 2. Main Route
     httpServer.route("/", []() {
@@ -44,16 +50,15 @@ int main(int argc, char *argv[])
                                    QHttpServerResponse::StatusCode::Ok);
     });
 
-    // 4. FIX: Catch-all handler
-    // If the request hits the server but doesn't match "/" or "/api/data",
-    // this will print exactly what path the browser is asking for.
-    httpServer.setMissingHandler([](const QHttpServerRequest &request) {
+    // 4. FIX: Corrected signature for setMissingHandler
+    // This now accepts the 'responder' object which we use to send the error.
+    httpServer.setMissingHandler([](const QHttpServerRequest &request, QHttpServerResponder &&responder) {
         log("WARNING: 404 Missing Handler triggered for path: " + request.url().path());
-        return QHttpServerResponse::StatusCode::NotFound;
+        responder.sendStatusCode(QHttpServerResponse::StatusCode::NotFound);
     });
 
     // 5. Start Listening
-    // Switched back to QHostAddress::Any to support both IPv4 and IPv6
+    // We use QHostAddress::Any to ensure we listen on all interfaces (IPv4/IPv6)
     const auto port = httpServer.listen(QHostAddress::Any, 8080);
 
     if (!port) {
