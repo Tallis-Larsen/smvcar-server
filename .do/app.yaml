@@ -1,24 +1,22 @@
-name: qt-server-portable
+name: smvcar-server
 region: nyc
 services:
-  - name: qt-backend
-    type: web                    # Add this explicitly
+  - name: smvcar-server
+    type: web
     dockerfile_path: Dockerfile
-    source_dir: /                # Add this
     github:
       branch: main
-      repo: your-username/your-repo-name
+      repo: Tallis-Larsen/smvcar-server
     instance_size_slug: basic-xxs
     http_port: 8080
-    run_command: ./server        # Add this explicitly
     envs:
       - key: PORT
         value: "8080"
         scope: RUN_TIME
         type: GENERAL
     health_check:
-      http_path: /               # Add this
-      initial_delay_seconds: 10
-      period_seconds: 10
+      http_path: /
+      initial_delay_seconds: 20
     routes:
       - path: /
+        preserve_path_prefix: false
