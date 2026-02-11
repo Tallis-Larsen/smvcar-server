@@ -1,0 +1,19 @@
+name: qt-server-portable
+region: nyc
+services:
+  - name: qt-backend
+    # This tells DO to look for the Dockerfile in the root of your repo
+    dockerfile_path: Dockerfile
+
+    # This sets the source to your GitHub repo (DO will fill in details when you import)
+    github:
+      branch: main
+      repo: your-username/your-repo-name
+
+    # "basic-xxs" is the internal name for the $5.00/month tier
+    instance_size_slug: basic-xxs
+
+    # Map the internal port 8080 to the public web
+    http_port: 8080
+    routes:
+      - path: /
