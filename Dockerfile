@@ -6,11 +6,13 @@ FROM ubuntu:24.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install C++ compiler, CMake, and Qt6 development files
+# FIX: Added qt6-websockets-dev because Qt6HttpServer depends on it for configuration
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     qt6-base-dev \
-    qt6-httpserver-dev
+    qt6-httpserver-dev \
+    qt6-websockets-dev
 
 # Copy source code into the container
 COPY . /src
@@ -25,9 +27,11 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install only the runtime libraries (smaller than full dev tools)
+# Install runtime libraries
+# FIX: Added libqt6websockets6 which is required by libqt6httpserver6
 RUN apt-get update && apt-get install -y \
     libqt6httpserver6 \
+    libqt6websockets6 \
     libqt6core6t64
 
 # Copy the compiled binary from the builder stage
