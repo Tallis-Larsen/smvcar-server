@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
 
     QHttpServer httpServer;
 
-    log("--- SERVER STARTING (Fixed Build) ---");
+    log("--- SERVER STARTING (API Fix) ---");
 
     // Check Port Env Var
     if (qEnvironmentVariableIsSet("PORT")) {
@@ -47,13 +47,14 @@ int main(int argc, char *argv[])
     });
     timer.start(10000);
 
-    // Pre-load HTML into memory to guarantee availability
+    // Pre-load HTML into memory
     QString htmlContent = "<h1>Error: HTML file not found</h1>";
     if (QFile::exists("index.html")) {
         log("SUCCESS: index.html found.");
         QFile file("index.html");
         if (file.open(QIODevice::ReadOnly)) {
-            htmlContent = file.readAll();
+            // Read as UTF-8 string, though readAll returns QByteArray naturally
+            htmlContent = QString::fromUtf8(file.readAll());
             log("Loaded index.html into memory (" + QString::number(htmlContent.size()) + " bytes)");
         }
     } else {
@@ -63,9 +64,15 @@ int main(int argc, char *argv[])
     QJsonArray ramDatabase = {"Qt6", "Server", "Is", "Online"};
 
     // 1. Root Route
+    // Capture htmlContent by copy
     httpServer.route("/", [htmlContent]() {
         log("Request received for: /");
-        return QHttpServerResponse(htmlContent, QHttpServerResponse::StatusCode::Ok, QHttpServerResponse::HeaderList{{"Content-Type", "text/html"}});
+
+        // FIX: Construct response with data/status first, then set header.
+        // QHttpServerResponse constructor expects QByteArray, not QString.
+        QHttpServerResponse response(htmlContent.toUtf8(), QHttpServerResponse::StatusCode::Ok);
+        response.setHeader("Content-Type", "text/html");
+        return response;
     });
 
     // 2. API Route
@@ -76,18 +83,16 @@ int main(int argc, char *argv[])
     });
 
     // 3. Fallback / Missing Handler
-    // We removed the QRegularExpression route because it caused a build error.
-    // Instead, we use this handler to catch EVERYTHING else.
-    // We serve the HTML page here too (SPA behavior) to ensure you see SOMETHING even if the path is wrong.
+    // FIX: Use responder.write(data, mimeType, status) overload
     httpServer.setMissingHandler([htmlContent](const QHttpServerRequest &request, QHttpServerResponder &&responder) {
         log("WARNING: Catch-All/Missing Handler triggered for path: " + request.url().path());
 
-        QHttpServerResponse response(htmlContent, QHttpServerResponse::StatusCode::Ok, QHttpServerResponse::HeaderList{{"Content-Type", "text/html"}});
-        responder.write(std::move(response));
+        // responder.write does not accept a QHttpServerResponse object.
+        // It accepts raw data + mime type + status.
+        responder.write(htmlContent.toUtf8(), "text/html", QHttpServerResponse::StatusCode::Ok);
     });
 
     // 4. Listen
-    // Using QHostAddress::Any to support both IPv6 (DigitalOcean internal) and IPv4.
     const int portToUse = qEnvironmentVariable("PORT", "8080").toInt();
     const auto port = httpServer.listen(QHostAddress::Any, portToUse);
 
