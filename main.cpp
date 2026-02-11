@@ -8,13 +8,12 @@
 #include <QFileInfo>
 #include <QDir>
 #include <iostream>
+#include <QLoggingCategory>
 
-// --- 1. Robust Logging Helper ---
-// This ensures every single log (qDebug, qWarning, std::cout) gets flushed
-// immediately so you see it in the DigitalOcean console.
+// 1. Custom Message Handler
+// This ensures we catch every single whisper from the Qt engine.
 void customMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg) {
-    QByteArray localMsg = msg.toLocal8Bit();
-    std::cout << "[Qt] " << localMsg.constData() << std::endl;
+    std::cout << "[Qt] " << qPrintable(msg) << std::endl;
 }
 
 void log(const QString &msg) {
@@ -23,45 +22,56 @@ void log(const QString &msg) {
 
 int main(int argc, char *argv[])
 {
-    // Install the custom logger to catch internal Qt warnings
-    qInstallMessageHandler(customMessageHandler);
+    // 2. Enable DEEP Internal Logging
+    // This is the most important change. It tells Qt to log low-level
+    // network details. If a connection hits the server, this WILL see it.
+    QLoggingCategory::setFilterRules(
+        "qt.httpserver*=true\n"
+        "qt.network*=true"
+    );
 
+    qInstallMessageHandler(customMessageHandler);
     QCoreApplication app(argc, argv);
+
+    // Force immediate log flushing
+    setbuf(stdout, NULL);
+
     QHttpServer httpServer;
 
-    log("--- SERVER STARTING (IPv4 Mode) ---");
-    log("Current Working Directory: " + QDir::currentPath());
+    log("--- SERVER STARTING ---");
+    log("Listening on explicit port: 8080");
 
+    // Check for index.html existence
     if (QFile::exists("index.html")) {
         log("SUCCESS: index.html found.");
     } else {
-        log("CRITICAL: index.html NOT found!");
+        log("CRITICAL ERROR: index.html NOT found!");
     }
 
-    QJsonArray ramDatabase = {"Qt6", "is", "working", "on", "IPv4"};
+    QJsonArray ramDatabase = {"Qt6", "is", "working", "on", "App Platform"};
 
-    // --- 2. Root Route ---
+    // 3. Main Route
     httpServer.route("/", []() {
         log("Request received for route: /");
         return QHttpServerResponse::fromFile("index.html");
     });
 
-    // --- 3. API Route ---
+    // 4. API Route
     httpServer.route("/api/data", [&ramDatabase]() {
         log("Request received for route: /api/data");
         return QHttpServerResponse(QJsonDocument(ramDatabase).toJson(),
                                    QHttpServerResponse::StatusCode::Ok);
     });
 
-    // --- 4. Catch-All Handler (Debug 404s) ---
+    // 5. Catch-All Handler
+    // If the browser requests /favicon.ico or anything else, this logs it.
     httpServer.setMissingHandler([](const QHttpServerRequest &request, QHttpServerResponder &&responder) {
         log("WARNING: 404 Handler triggered for path: " + request.url().path());
         responder.write(QHttpServerResponse::StatusCode::NotFound);
     });
 
-    // --- 5. THE FIX: Force IPv4 Binding ---
-    // QHostAddress::Any might bind to IPv6 (::), which can cause
-    // docker port mapping to fail on some cloud providers.
+    // 6. Start Listening
+    // We stick to AnyIPv4 to ensure 0.0.0.0 binding (standard for Docker)
     const auto port = httpServer.listen(QHostAddress::AnyIPv4, 8080);
 
     if (!port) {
@@ -69,7 +79,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    log("Server listening on 0.0.0.0:" + QString::number(port));
+    log("Server listening on port " + QString::number(port));
 
     return app.exec();
 }
