@@ -28,11 +28,13 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install runtime libraries
-# FIX: Added libqt6websockets6 which is required by libqt6httpserver6
+# FIX 1: Added libqt6websockets6 (dependency)
+# FIX 2: Added shared-mime-info (REQUIRED for serving files correctly)
 RUN apt-get update && apt-get install -y \
     libqt6httpserver6 \
     libqt6websockets6 \
-    libqt6core6t64
+    libqt6core6t64 \
+    shared-mime-info
 
 # Copy the compiled binary from the builder stage
 COPY --from=builder /build/QtServer /app/server
