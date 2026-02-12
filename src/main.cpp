@@ -1,3 +1,5 @@
+// Basic test program created by AI
+
 #include <QCoreApplication>
 #include <QHttpServer>
 #include <QHttpServerResponse>

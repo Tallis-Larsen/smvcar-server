@@ -1,3 +1,6 @@
+# This is just a config file for DigitalOcean to know how to run the server.
+# I don't really understand it all that much, but it works.
+
 name: smvcar-server
 region: nyc
 services:
