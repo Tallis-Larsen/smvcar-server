@@ -17,8 +17,8 @@ WORKDIR /src
 
 # Copying the source files to the image
 COPY CMakeLists.txt .
-COPY src/ .
-COPY include/ .
+COPY src/ ./src/
+COPY include/ ./include/
 
 # Configure build
 RUN cmake -S . -B /build -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libqt6httpserver6 \
     libqt6core6t64 \
     libqt6websockets6 \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/lib/apt/lists/*
 
 # Creates a new user to run the server
 RUN useradd --system --no-create-home appuser
