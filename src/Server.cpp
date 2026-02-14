@@ -63,14 +63,14 @@ void Server::processMessage(const QString& message) {
 
     // Sort the list
     std::sort(events.begin(), events.end(), [](const QJsonObject& a, const QJsonObject& b) {
-        return a["timestamp"].toInteger() < b["timestamp"].toInteger();
+        return QDateTime::fromString(a["timestamp"].toString(), Qt::ISODateWithMs) < QDateTime::fromString(b["timestamp"].toString(), Qt::ISODateWithMs);
     });
 
     // Check for any commands within 15 seconds of each other
     for (int i = 1; i < events.size(); i++) {
-        qint64 previousTimestamp = events[i - 1]["timestamp"].toInteger();
-        qint64 currentTimestamp = events[i]["timestamp"].toInteger();
-        if (currentTimestamp - previousTimestamp < 15000) {
+        QDateTime previousTimestamp = QDateTime::fromString(events[i - 1]["timestamp"].toString(), Qt::ISODateWithMs);
+        QDateTime currentTimestamp = QDateTime::fromString(events[i]["timestamp"].toString(), Qt::ISODateWithMs);
+        if (previousTimestamp.msecsTo(currentTimestamp) < 15000) {
             QString commandId = events[i]["command_id"].toString();
             // If the invalid command is the one we just received, then just reject it and continue.
             if (commandId == command["command_id"].toString()) {
