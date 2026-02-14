@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QSet>
 
 class Server : public QObject {
     Q_OBJECT
@@ -14,14 +15,14 @@ private:
     QWebSocketServer webSocketServer;
     QList<QWebSocket*> clients;
     QList<QJsonObject> events;
-    QMap<QWebSocket*, int> clientIds;
     QString targetTimeMessage;
     QString targetLapsMessage;
+    QSet<QString> invalidCommands;
 
-    QWebSocket* getClientById(int clientId);
     void sendMessage(const QString& message);
-    void sendRejectMessage(QWebSocket *client, int messageId);
-    void invalidateCommand(int commandId);
+    void sendRejectMessage(QWebSocket *client, QString messageId);
+    void invalidateCommand(QString commandId);
+    void sendBacklog(QWebSocket* client);
 private slots:
     void newConnection();
     void processMessage(const QString& message);

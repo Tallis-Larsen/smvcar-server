@@ -8,12 +8,11 @@ Server::Server(QObject *parent) : QObject(parent), webSocketServer("smvcar-serve
 }
 
 void Server::newConnection() {
-    static int nextClientId = 0;
     QWebSocket* client = webSocketServer.nextPendingConnection();
-    clientIds[client] = nextClientId++;
     clients.append(client);
     connect(client, &QWebSocket::textMessageReceived, this, &Server::processMessage);
     connect(client, &QWebSocket::disconnected, this, &Server::clientDisconnected);
+    sendBacklog(client);
 }
 
 void Server::processMessage(const QString& message) {
@@ -28,6 +27,10 @@ void Server::processMessage(const QString& message) {
 
     QJsonObject command = document.object();
     QString function = command["function"].toString();
+
+    if (invalidCommands.contains(command["command_id"].toString())) { return; }
+
+    invalidCommands.insert(command["command_id"].toString());
 
     // If it's any of these commands, just confirm the message automatically.
     if (function == "startStopwatch") {
@@ -68,9 +71,9 @@ void Server::processMessage(const QString& message) {
         qint64 previousTimestamp = events[i - 1]["timestamp"].toInteger();
         qint64 currentTimestamp = events[i]["timestamp"].toInteger();
         if (currentTimestamp - previousTimestamp < 15000) {
-            int commandId = events[i]["command_id"].toInt();
+            QString commandId = events[i]["command_id"].toString();
             // If the invalid command is the one we just received, then just reject it and continue.
-            if (commandId == command["command_id"].toInt()) {
+            if (commandId == command["command_id"].toString()) {
                 sendRejectMessage(client, commandId);
             } else { // If the invalid command is one that was previously validated, we need to remove it from all clients.
                 invalidateCommand(commandId);
@@ -92,7 +95,7 @@ void Server::sendMessage(const QString &message) {
     }
 }
 
-void Server::sendRejectMessage(QWebSocket *client, int messageId) {
+void Server::sendRejectMessage(QWebSocket *client, QString messageId) {
     QJsonObject message;
     message["function"] = "reject";
     message["command_id"] = messageId;
@@ -100,22 +103,54 @@ void Server::sendRejectMessage(QWebSocket *client, int messageId) {
     client->sendTextMessage(messageString);
 }
 
-void Server::invalidateCommand(int commandId) {
+void Server::invalidateCommand(QString commandId) {
     for (QWebSocket* client : clients) {
         sendRejectMessage(client, commandId);
     }
+}
+
+void Server::sendBacklog(QWebSocket* client) {
+    // Each client gets a unique message prefix to prevent reconnection id issues
+    static char nextMessagePrefix = 'a';
+    if (nextMessagePrefix == 'z') {
+        nextMessagePrefix = 'a';
+    } else {
+        nextMessagePrefix++;
+    }
+
+    // Separate scopes so I can use the same name multiple times
+    {
+        QJsonObject message;
+        message["function"] = "setPrefix";
+        message["message_prefix"] = QString(nextMessagePrefix);
+        QString messageString = QString(QJsonDocument(message).toJson(QJsonDocument::Compact));
+        client->sendTextMessage(messageString);
+    }
+    // {
+    //     QJsonObject message;
+    //     message["function"] = "setId";
+    //     message["client_id"] = clientId;
+    //     QString messageString = QString(QJsonDocument(message).toJson(QJsonDocument::Compact));
+    //     client->sendTextMessage(messageString);
+    // }
+    if (!targetLapsMessage.isEmpty()) {
+        client->sendTextMessage(targetLapsMessage);
+    }
+    if (!targetTimeMessage.isEmpty()) {
+        client->sendTextMessage(targetTimeMessage);
+    }
+    for (QJsonObject& event : events) {
+        QString messageString = QString(QJsonDocument(event).toJson(QJsonDocument::Compact));
+        client->sendTextMessage(messageString);
+    }
+
 }
 
 void Server::clientDisconnected() {
     // sender() retrieves the object that sent the signal
     QWebSocket* client = qobject_cast<QWebSocket*>(sender());
     if (client) {
-        clientIds.remove(client);
         clients.removeAll(client);
         client->deleteLater();
     }
-}
-
-QWebSocket* Server::getClientById(int clientId) {
-    return clientIds.key(clientId, nullptr);
 }
