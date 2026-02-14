@@ -8,13 +8,17 @@ Server::Server(QObject *parent) : QObject(parent), webSocketServer("smvcar-serve
 }
 
 void Server::newConnection() {
+    static int nextClientId = 0;
     QWebSocket* client = webSocketServer.nextPendingConnection();
+    clientIds[client] = nextClientId++;
     clients.append(client);
     connect(client, &QWebSocket::textMessageReceived, this, &Server::processMessage);
     connect(client, &QWebSocket::disconnected, this, &Server::clientDisconnected);
 }
 
 void Server::processMessage(const QString& message) {
+    // sender() retrieves the object that sent the signal
+    QWebSocket* client = qobject_cast<QWebSocket*>(sender());
     QJsonDocument document = QJsonDocument::fromJson(message.toUtf8());
 
     if (document.isNull() || !document.isObject()) {
@@ -23,17 +27,16 @@ void Server::processMessage(const QString& message) {
     }
 
     QJsonObject command = document.object();
-
     QString function = command["function"].toString();
 
     // If it's any of these commands, just confirm the message automatically.
     if (function == "startStopwatch") {
-        events.append(message);
+        events.append(command);
         sendMessage(message);
         return;
     }
     if (function == "stopStopwatch") {
-        events.append(message);
+        events.append(command);
         sendMessage(message);
         return;
     }
@@ -53,33 +56,34 @@ void Server::processMessage(const QString& message) {
         return;
     }
 
-
-    events.append(message);
-
-    // NOTE: Re-parsing the strings every time we do an operation on them is very inefficient.
-    // However, it keeps the events list as strings which makes it much easier to pass messages to the clients.
+    events.append(command);
 
     // Sort the list
-    std::sort(events.begin(), events.end(), [](const QString& a, const QString& b) {
-        return QJsonDocument::fromJson(a.toUtf8()).object()["timestamp"].toInteger()
-        < QJsonDocument::fromJson(b.toUtf8()).object()["timestamp"].toInteger();
+    std::sort(events.begin(), events.end(), [](const QJsonObject& a, const QJsonObject& b) {
+        return a["timestamp"].toInteger() < b["timestamp"].toInteger();
     });
 
     // Check for any commands within 15 seconds of each other
     for (int i = 1; i < events.size(); i++) {
-        qint64 previousTimestamp = QJsonDocument::fromJson(events[i-1].toUtf8()).object()["timestamp"].toInteger();
-        qint64 currentTimestamp = QJsonDocument::fromJson(events[i].toUtf8()).object()["timestamp"].toInteger();
+        qint64 previousTimestamp = events[i - 1]["timestamp"].toInteger();
+        qint64 currentTimestamp = events[i]["timestamp"].toInteger();
         if (currentTimestamp - previousTimestamp < 15000) {
-            int commandId = QJsonDocument::fromJson(events[i].toUtf8()).object()["id"].toInt();
+            int commandId = events[i]["command_id"].toInt();
+            // If the invalid command is the one we just received, then just reject it and continue.
+            if (commandId == command["command_id"].toInt()) {
+                sendRejectMessage(client, commandId);
+            } else { // If the invalid command is one that was previously validated, we need to remove it from all clients.
+                invalidateCommand(commandId);
+                // Also sends the received message, because now we know it's not invalid.
+                sendMessage(message);
+            }
             events.removeAt(i);
-            sendRejectMessage(commandId);
             return;
         }
     }
 
     // If we get this far, then the message is valid and we send it to all clients.
     sendMessage(message);
-
 }
 
 void Server::sendMessage(const QString &message) {
@@ -88,21 +92,30 @@ void Server::sendMessage(const QString &message) {
     }
 }
 
-void Server::sendRejectMessage(int messageId) {
+void Server::sendRejectMessage(QWebSocket *client, int messageId) {
     QJsonObject message;
     message["function"] = "reject";
-    message["id"] = messageId;
+    message["command_id"] = messageId;
     QString messageString = QString(QJsonDocument(message).toJson(QJsonDocument::Compact));
-    // While this does send a reject response to ALL clients,
-    // the clients without the corresponding message in queue should ignore it so it should be fine.
-    sendMessage(messageString);
+    client->sendTextMessage(messageString);
+}
+
+void Server::invalidateCommand(int commandId) {
+    for (QWebSocket* client : clients) {
+        sendRejectMessage(client, commandId);
+    }
 }
 
 void Server::clientDisconnected() {
     // sender() retrieves the object that sent the signal
     QWebSocket* client = qobject_cast<QWebSocket*>(sender());
     if (client) {
-        clients.removeOne(client);
+        clientIds.remove(client);
+        clients.removeAll(client);
         client->deleteLater();
     }
+}
+
+QWebSocket* Server::getClientById(int clientId) {
+    return clientIds.key(clientId, nullptr);
 }
