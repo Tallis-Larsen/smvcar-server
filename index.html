@@ -18,8 +18,8 @@
             --bg:        #0a0a0b;
             --surface:   #111114;
             --border:    #222228;
-            --accent:    #e83030;
-            --accent-dim:#a02020;
+            --accent:    #e0e0e0;
+            --accent-dim:#999999;
             --text:      #e0e0e0;
             --text-dim:  #666670;
             --red:       #e83030;
@@ -40,7 +40,6 @@
             overflow-x: hidden;
         }
 
-        /* Top bar */
         .topbar {
             width: 100%;
             background: var(--surface);
@@ -50,7 +49,6 @@
             justify-content: space-between;
             padding: 0 24px;
             height: 48px;
-            letter-spacing: 0.15em;
         }
 
         .topbar-title {
@@ -83,7 +81,6 @@
 
         .status-dot.connected { background: var(--green); }
 
-        /* Main content */
         .main {
             width: 100%;
             max-width: 480px;
@@ -93,7 +90,6 @@
             gap: 0;
         }
 
-        /* Total time display */
         .time-display {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -117,10 +113,8 @@
             line-height: 1;
             color: var(--accent);
             letter-spacing: 0.02em;
-
         }
 
-        /* Controls row */
         .controls {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -148,10 +142,7 @@
             overflow: hidden;
         }
 
-        .lap-btn:active {
-            transform: scale(0.98);
-            background: var(--accent-dim);
-        }
+        .lap-btn:active { transform: scale(0.98); background: var(--accent-dim); }
 
         .lap-btn::after {
             content: '';
@@ -164,17 +155,9 @@
 
         .lap-btn:hover::after { opacity: 1; }
 
-        .settings-row {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+        .settings-row { display: flex; flex-direction: column; gap: 10px; }
 
-        .setting-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
+        .setting-group { display: flex; flex-direction: column; gap: 5px; }
 
         .setting-label {
             font-size: 10px;
@@ -184,10 +167,7 @@
             color: var(--text-dim);
         }
 
-        .setting-input-row {
-            display: flex;
-            gap: 6px;
-        }
+        .setting-input-row { display: flex; gap: 6px; }
 
         .setting-input-row input {
             flex: 1;
@@ -225,7 +205,6 @@
 
         .set-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-        /* Lap table */
         .table-container {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -247,10 +226,7 @@
             color: var(--text-dim);
         }
 
-        #lap-table-body {
-            display: flex;
-            flex-direction: column;
-        }
+        #lap-table-body { display: flex; flex-direction: column; }
 
         .lap-row {
             display: grid;
@@ -263,8 +239,7 @@
 
         .lap-row:last-child { border-bottom: none; }
         .lap-row:hover { background: rgba(255,255,255,0.02); }
-
-        .lap-row.active { background: rgba(232, 255, 0, 0.04); }
+        .lap-row.active { background: rgba(255,255,255,0.03); }
 
         @keyframes rowIn {
             from { opacity: 0; transform: translateY(-4px); }
@@ -285,9 +260,12 @@
             color: var(--text);
         }
 
-        .lap-row.active .lap-time {
-            color: var(--accent);
-        }
+        /* Active lap is always neutral white — it's still in progress */
+        .lap-row.active .lap-time { color: var(--text); }
+
+        /* Completed laps colored by pace vs target average */
+        .lap-time.ahead  { color: var(--green); }
+        .lap-time.behind { color: var(--red); }
 
         .empty-state {
             padding: 32px 24px;
@@ -298,8 +276,6 @@
             letter-spacing: 0.2em;
             color: var(--text-dim);
         }
-
-
     </style>
 </head>
 <body>
@@ -350,22 +326,32 @@
 </div>
 
 <script>
-    const statusEl   = document.getElementById('status');
-    const statusDot  = document.getElementById('status-dot');
-    const lapButton  = document.getElementById('lap-button');
-    const totalTimeEl = document.getElementById('total-time');
+    const statusEl     = document.getElementById('status');
+    const statusDot    = document.getElementById('status-dot');
+    const lapButton    = document.getElementById('lap-button');
+    const totalTimeEl  = document.getElementById('total-time');
     const lapTableBody = document.getElementById('lap-table-body');
-    const emptyState = document.getElementById('empty-state');
+    const emptyState   = document.getElementById('empty-state');
     const targetLapsInput = document.getElementById('target-laps');
     const targetTimeInput = document.getElementById('target-time');
 
     let socket;
     let messageIdPrefix = '';
-    let nextMessageId = 0;
-    let rows = [];
-    let isRunning = false;
-    let updateInterval = null;
+    let nextMessageId   = 0;
+    let rows            = [];
+    let isRunning       = false;
+    let updateInterval  = null;
     let pendingMessages = [];
+
+    // Target values — both needed to calculate average lap time
+    let targetLaps   = null;  // number of laps
+    let targetTimeMs = null;  // total target duration in ms
+
+    // Returns target lap average in ms, or null if either value is missing
+    function targetLapAvgMs() {
+        if (targetLaps && targetTimeMs) return targetTimeMs / targetLaps;
+        return null;
+    }
 
     // ---- WebSocket ----
 
@@ -423,9 +409,13 @@
         if (func === 'setPrefix') {
             messageIdPrefix = command.message_prefix;
         } else if (func === 'setTargetLaps') {
-            targetLapsInput.value = command.target_laps;
+            targetLaps = command.target_laps;
+            targetLapsInput.value = targetLaps;
+            recalculateTable(); // recolor existing laps with new average
         } else if (func === 'setTargetTime') {
+            targetTimeMs = command.target_time * 60 * 1000; // server sends minutes
             targetTimeInput.value = command.target_time;
+            recalculateTable(); // recolor existing laps with new average
         } else if (func === 'startStopwatch') {
             addRow(new Date(command.timestamp), command.command_id);
             startTimer();
@@ -464,11 +454,8 @@
     function updateTime() {
         if (rows.length === 0) return;
         const now = new Date();
-
-        // Total time from oldest row
         totalTimeEl.textContent = formatTime(now - rows[rows.length - 1].timestamp);
 
-        // Update active lap cell (first row in the rendered table)
         const activeRowEl = lapTableBody.querySelector('.lap-row.active');
         if (activeRowEl && isRunning) {
             activeRowEl.querySelector('.lap-time').textContent = formatTime(now - rows[0].timestamp);
@@ -502,7 +489,6 @@
 
     function recalculateTable() {
         rows.sort((a, b) => b.timestamp - a.timestamp);
-
         lapTableBody.innerHTML = '';
 
         if (rows.length === 0) {
@@ -510,18 +496,30 @@
             return;
         }
 
+        const avg = targetLapAvgMs();
+
         for (let i = 0; i < rows.length; i++) {
+            const isActive = i === 0;
             const el = document.createElement('div');
-            el.className = 'lap-row' + (i === 0 ? ' active' : '');
+            el.className = 'lap-row' + (isActive ? ' active' : '');
             el.dataset.commandId = rows[i].commandId;
 
             const lapNumber = rows.length - i;
+
+            // Active lap: live-updating, no pace color yet
+            // Completed laps: fixed split time, green if at/under average, red if over
             let lapTimeStr = '00:00.00';
-            if (i < rows.length - 1) {
-                lapTimeStr = formatTime(rows[i].timestamp - rows[i + 1].timestamp);
+            let paceClass  = '';
+
+            if (!isActive) {
+                const lapMs = rows[i].timestamp - rows[i + 1].timestamp;
+                lapTimeStr = formatTime(lapMs);
+                if (avg !== null) {
+                    paceClass = lapMs <= avg ? 'ahead' : 'behind';
+                }
             }
 
-            el.innerHTML = `<span class="lap-num">${String(lapNumber).padStart(2, '0')}</span><span class="lap-time">${lapTimeStr}</span>`;
+            el.innerHTML = `<span class="lap-num">${String(lapNumber).padStart(2, '0')}</span><span class="lap-time ${paceClass}">${lapTimeStr}</span>`;
             lapTableBody.appendChild(el);
         }
     }
@@ -555,14 +553,20 @@
 
     document.getElementById('set-target-laps-button').onclick = () => {
         const laps = parseInt(targetLapsInput.value, 10);
-        if (!isNaN(laps) && laps > 0)
+        if (!isNaN(laps) && laps > 0) {
+            targetLaps = laps;
+            recalculateTable();
             sendMessage({ function: 'setTargetLaps', target_laps: laps, command_id: nextCommandId() });
+        }
     };
 
     document.getElementById('set-target-time-button').onclick = () => {
         const time = parseInt(targetTimeInput.value, 10);
-        if (!isNaN(time) && time > 0)
+        if (!isNaN(time) && time > 0) {
+            targetTimeMs = time * 60 * 1000;
+            recalculateTable();
             sendMessage({ function: 'setTargetTime', target_time: time, command_id: nextCommandId() });
+        }
     };
 
     connect();
