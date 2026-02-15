@@ -98,7 +98,7 @@
         }
 
         .time-label {
-            font-size: 10px;
+            font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.3em;
@@ -160,7 +160,7 @@
         .setting-group { display: flex; flex-direction: column; gap: 5px; }
 
         .setting-label {
-            font-size: 10px;
+            font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.2em;
@@ -193,7 +193,7 @@
             border: 1px solid var(--border);
             color: var(--text-dim);
             font-family: var(--sans);
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.15em;
@@ -219,7 +219,7 @@
         }
 
         .table-header span {
-            font-size: 10px;
+            font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.25em;
@@ -248,7 +248,7 @@
 
         .lap-num {
             font-family: var(--sans);
-            font-size: 13px;
+            font-size: 15px;
             font-weight: 600;
             color: var(--text-dim);
             letter-spacing: 0.1em;
@@ -423,11 +423,13 @@
         } else if (func === 'setTargetLaps') {
             targetLaps = command.target_laps;
             targetLapsInput.value = targetLaps;
-            recalculateTable(); // recolor existing laps with new average
+            targetLapAvgMs();
+            recalculateTable();
         } else if (func === 'setTargetTime') {
-            targetTimeMs = command.target_time * 60 * 1000; // server sends minutes
+            targetTimeMs = command.target_time * 60 * 1000;
             targetTimeInput.value = command.target_time;
-            recalculateTable(); // recolor existing laps with new average
+            targetLapAvgMs();
+            recalculateTable();
         } else if (func === 'startStopwatch') {
             addRow(new Date(command.timestamp), command.command_id);
             startTimer();
@@ -578,6 +580,7 @@
         const laps = parseInt(targetLapsInput.value, 10);
         if (!isNaN(laps) && laps > 0) {
             targetLaps = laps;
+            targetLapAvgMs();
             recalculateTable();
             sendMessage({ function: 'setTargetLaps', target_laps: laps, command_id: nextCommandId() });
         }
@@ -587,6 +590,7 @@
         const time = parseInt(targetTimeInput.value, 10);
         if (!isNaN(time) && time > 0) {
             targetTimeMs = time * 60 * 1000;
+            targetLapAvgMs();
             recalculateTable();
             sendMessage({ function: 'setTargetTime', target_time: time, command_id: nextCommandId() });
         }
