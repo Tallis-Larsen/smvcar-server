@@ -127,6 +127,23 @@ void Server::processMessage(const QString& message) {
         return;
     }
 
+    // Check if stopwatch is running
+    bool isRunning = false;
+    for (QJsonObject& event : events) {
+        if (event[FUNCTION].toString() == START_STOPWATCH) {
+            isRunning = true;
+        } else if (event[FUNCTION].toString() == STOP_STOPWATCH) {
+            isRunning = false;
+            break;
+        }
+    }
+
+    // If stopwatch is not running, we reject the lap command.
+    if (!isRunning) {
+        sendRejectMessage(client, command[COMMAND_ID].toString());
+        return;
+    }
+
     events.append(command);
 
     // Sort the list
