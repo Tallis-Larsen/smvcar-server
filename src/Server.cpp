@@ -1,6 +1,8 @@
 #include "../include/Server.h"
 #include <QDebug>
 #include <QWebSocket>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 const QString COMMAND_ID = "command_id";
 const QString FUNCTION = "function";
@@ -99,6 +101,8 @@ void Server::newConnection() {
 void Server::processMessage(const QString& message) {
     // sender() retrieves the object that sent the signal
     QWebSocket* client = qobject_cast<QWebSocket*>(sender());
+    qInfo() << "Received message from" << client->peerAddress().toString() << ":" << message;
+
     QJsonDocument document = QJsonDocument::fromJson(message.toUtf8());
 
     if (document.isNull() || !document.isObject()) {
@@ -108,37 +112,45 @@ void Server::processMessage(const QString& message) {
 
     QJsonObject command = document.object();
     QString function = command[FUNCTION].toString();
+    QString commandId = command[COMMAND_ID].toString();
+
+    qInfo() << "Processing command" << commandId << "with function" << function;
 
     // Reject commands that have been seen before
-    if (invalidCommands.contains(command[COMMAND_ID].toString())) {
-        qDebug() << "Ignoring duplicate command" << command[COMMAND_ID].toString();
+    if (invalidCommands.contains(commandId)) {
+        qDebug() << "Ignoring duplicate command" << commandId;
         return;
     }
 
-    invalidCommands.insert(command[COMMAND_ID].toString());
+    invalidCommands.insert(commandId);
 
     // If it's any of these commands, just confirm the message automatically.
     if (function == START_STOPWATCH) {
+        qInfo() << "Starting stopwatch. Storing event and broadcasting.";
         events.append(command);
         sendMessage(message);
         return;
     }
     if (function == STOP_STOPWATCH) {
+        qInfo() << "Stopping stopwatch. Storing event and broadcasting.";
         events.append(command);
         sendMessage(message);
         return;
     }
     if (function == RESET_STOPWATCH) {
+        qInfo() << "Resetting stopwatch. Clearing events and broadcasting.";
         events.clear();
         sendMessage(message);
         return;
     }
     if (function == SET_TARGET_LAPS) {
+        qInfo() << "Setting target laps and broadcasting.";
         targetLapsMessage = message;
         sendMessage(message);
         return;
     }
     if (function == SET_TARGET_TIME) {
+        qInfo() << "Setting target time and broadcasting.";
         targetTimeMessage = message;
         sendMessage(message);
         return;
@@ -151,36 +163,38 @@ void Server::processMessage(const QString& message) {
             isRunning = true;
         } else if (event[FUNCTION].toString() == STOP_STOPWATCH) {
             isRunning = false;
-            break;
         }
     }
+    qDebug() << "Is stopwatch running?" << isRunning;
 
     // If stopwatch is not running, we reject the lap command.
     if (!isRunning) {
-        qDebug() << "Rejecting lap command because stopwatch is not running.";
-        sendRejectMessage(client, command[COMMAND_ID].toString());
+        qDebug() << "Rejecting lap command" << commandId << "because stopwatch is not running.";
+        sendRejectMessage(client, commandId);
         return;
     }
 
+    qInfo() << "Lap command" << commandId << "is valid for now. Appending to events.";
     events.append(command);
 
     // Sort the list
+    qDebug() << "Sorting events list.";
     std::sort(events.begin(), events.end(), [](const QJsonObject& a, const QJsonObject& b) {
         return QDateTime::fromString(a[TIMESTAMP].toString(), Qt::ISODateWithMs) < QDateTime::fromString(b[TIMESTAMP].toString(), Qt::ISODateWithMs);
     });
 
-    // Check for any commands within 15 seconds of each other
+    // Check for any commands within 5 seconds of each other
     for (int i = 1; i < events.size(); i++) {
         QDateTime previousTimestamp = QDateTime::fromString(events[i - 1][TIMESTAMP].toString(), Qt::ISODateWithMs);
         QDateTime currentTimestamp = QDateTime::fromString(events[i][TIMESTAMP].toString(), Qt::ISODateWithMs);
         if (previousTimestamp.msecsTo(currentTimestamp) < 5000) {
-            QString commandId = events[i][COMMAND_ID].toString();
-            qDebug() << "Found command" << commandId << "too close to previous command. Invalidating.";
+            QString conflictingCommandId = events[i][COMMAND_ID].toString();
+            qDebug() << "Found command" << conflictingCommandId << "too close to previous command. Invalidating.";
             // If the invalid command is the one we just received, then just reject it and continue.
-            if (commandId == command[COMMAND_ID].toString()) {
-                sendRejectMessage(client, commandId);
+            if (conflictingCommandId == command[COMMAND_ID].toString()) {
+                sendRejectMessage(client, conflictingCommandId);
             } else { // If the invalid command is one that was previously validated, we need to remove it from all clients.
-                invalidateCommand(commandId);
+                invalidateCommand(conflictingCommandId);
                 // Also sends the received message, because now we know it's not invalid.
                 sendMessage(message);
             }
@@ -190,10 +204,12 @@ void Server::processMessage(const QString& message) {
     }
 
     // If we get this far, then the message is valid and we send it to all clients.
+    qInfo() << "Command" << commandId << "is valid. Broadcasting to all clients.";
     sendMessage(message);
 }
 
 void Server::sendMessage(const QString &message) {
+    qDebug() << "Broadcasting message to" << clients.size() << "clients:" << message;
     for (QWebSocket* client : clients) {
         client->sendTextMessage(message);
     }
