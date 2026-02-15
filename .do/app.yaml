@@ -5,7 +5,6 @@ name: smvcar-server
 region: nyc
 services:
   - name: smvcar-server
-    type: web
     dockerfile_path: Dockerfile
     github:
       branch: main

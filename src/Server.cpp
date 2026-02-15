@@ -2,13 +2,70 @@
 
 // NOTE: This is my first time writing complex networking logic, so this whole thing is a bit of a mess.
 
-Server::Server(QObject *parent) : QObject(parent), webSocketServer("smvcar-server", QWebSocketServer::NonSecureMode, this) {
-    webSocketServer.listen(QHostAddress::Any, 8080);
+MuxServer::MuxServer(QWebSocketServer* webSocketServer, QObject* parent)
+    : QTcpServer(parent), webSocketServer(webSocketServer) {}
+
+void MuxServer::incomingConnection(qintptr socketDescriptor) {
+    QTcpSocket* socket = new QTcpSocket(this);
+    socket->setSocketDescriptor(socketDescriptor);
+    connect(socket, &QTcpSocket::readyRead, this, &MuxServer::onReadyRead);
+}
+
+void MuxServer::onReadyRead() {
+    QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
+    if (!socket) { return; }
+
+    const QByteArray data = socket->peek(1024);
+
+    // Decides if connection is just asking for the HTML page or if it should be converted to a websocket
+    if (data.contains("Upgrade: websocket") || data.contains("upgrade: websocket")) {
+        disconnect(socket, &QTcpSocket::readyRead, this, &MuxServer::onReadyRead);
+        webSocketServer->handleConnection(socket);
+    } else {
+        disconnect(socket, &QTcpSocket::readyRead, this, &MuxServer::onReadyRead);
+        serveHttp(socket);
+    }
+}
+
+void MuxServer::serveHttp(QTcpSocket *socket) {
+    const QByteArray request = socket->readAll();
+
+    QFile file("index.html");
+    QByteArray body;
+
+    if (file.open(QIODevice::ReadOnly)) {
+        body = file.readAll();
+    } else {
+        body = "<h1>404 Not Found</h1>";
+    }
+
+    const QByteArray response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
+        "Connection: close\r\n"
+        "\r\n" + body;
+
+    socket->write(response);
+    connect(socket, &QTcpSocket::bytesWritten, socket, [socket]() {
+        if (socket->bytesToWrite() == 0) { socket->disconnectFromHost(); }});
+
+}
+
+Server::Server(QObject *parent) : QObject(parent), webSocketServer("smvcar-server", QWebSocketServer::NonSecureMode, this),
+    tcpServer(&webSocketServer, this) {
+
+    const quint16 port = static_cast<quint16>(qEnvironmentVariable("PORT", "8080").toInt());
     connect(&webSocketServer, &QWebSocketServer::newConnection, this, &Server::newConnection);
+
+    if (!tcpServer.listen(QHostAddress::Any, port)) {
+        return;
+    }
 }
 
 void Server::newConnection() {
     QWebSocket* client = webSocketServer.nextPendingConnection();
+    client->setParent(this);
     clients.append(client);
     connect(client, &QWebSocket::textMessageReceived, this, &Server::processMessage);
     connect(client, &QWebSocket::disconnected, this, &Server::clientDisconnected);
@@ -95,15 +152,15 @@ void Server::sendMessage(const QString &message) {
     }
 }
 
-void Server::sendRejectMessage(QWebSocket *client, QString messageId) {
+void Server::sendRejectMessage(QWebSocket* client, const QString& messageId) {
     QJsonObject message;
     message["function"] = "reject";
     message["command_id"] = messageId;
-    QString messageString = QString(QJsonDocument(message).toJson(QJsonDocument::Compact));
+    QString messageString = QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact));
     client->sendTextMessage(messageString);
 }
 
-void Server::invalidateCommand(QString commandId) {
+void Server::invalidateCommand(const QString& commandId) {
     for (QWebSocket* client : clients) {
         sendRejectMessage(client, commandId);
     }
@@ -123,16 +180,9 @@ void Server::sendBacklog(QWebSocket* client) {
         QJsonObject message;
         message["function"] = "setPrefix";
         message["message_prefix"] = QString(nextMessagePrefix);
-        QString messageString = QString(QJsonDocument(message).toJson(QJsonDocument::Compact));
+        QString messageString = QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact));
         client->sendTextMessage(messageString);
     }
-    // {
-    //     QJsonObject message;
-    //     message["function"] = "setId";
-    //     message["client_id"] = clientId;
-    //     QString messageString = QString(QJsonDocument(message).toJson(QJsonDocument::Compact));
-    //     client->sendTextMessage(messageString);
-    // }
     if (!targetLapsMessage.isEmpty()) {
         client->sendTextMessage(targetLapsMessage);
     }
@@ -140,7 +190,7 @@ void Server::sendBacklog(QWebSocket* client) {
         client->sendTextMessage(targetTimeMessage);
     }
     for (QJsonObject& event : events) {
-        QString messageString = QString(QJsonDocument(event).toJson(QJsonDocument::Compact));
+        QString messageString = QString::fromUtf8(QJsonDocument(event).toJson(QJsonDocument::Compact));
         client->sendTextMessage(messageString);
     }
 
