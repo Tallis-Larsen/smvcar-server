@@ -236,6 +236,7 @@ void Server::sendBacklog(QWebSocket* client) {
     static char nextMessagePrefix = 'a';
     if (nextMessagePrefix == 'z') {
         nextMessagePrefix = 'a';
+        invalidCommands.clear(); // Dangerous? yes. Lazy? absolutely. Functional? maybe.
     } else {
         nextMessagePrefix++;
     }
