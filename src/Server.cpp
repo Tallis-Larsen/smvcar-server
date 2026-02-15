@@ -1,4 +1,6 @@
 #include "../include/Server.h"
+#include <QDebug>
+#include <QWebSocket>
 
 const QString COMMAND_ID = "command_id";
 const QString FUNCTION = "function";
@@ -18,6 +20,7 @@ MuxServer::MuxServer(QWebSocketServer* webSocketServer, QObject* parent)
     : QTcpServer(parent), webSocketServer(webSocketServer) {}
 
 void MuxServer::incomingConnection(qintptr socketDescriptor) {
+    qDebug() << "Client connection attempt with socket descriptor:" << socketDescriptor;
     QTcpSocket* socket = new QTcpSocket(this);
     socket->setSocketDescriptor(socketDescriptor);
     connect(socket, &QTcpSocket::readyRead, this, &MuxServer::onReadyRead);
@@ -25,12 +28,16 @@ void MuxServer::incomingConnection(qintptr socketDescriptor) {
 
 void MuxServer::onReadyRead() {
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
-    if (!socket) { return; }
+    if (!socket) {
+        qWarning() << "onReadyRead triggered without a valid socket.";
+        return;
+    }
 
     const QByteArray data = socket->peek(1024);
 
     // Decides if connection is just asking for the HTML page or if it should be converted to a websocket
     if (data.contains("Upgrade: websocket") || data.contains("upgrade: websocket")) {
+        qDebug() << "Attempting to upgrade connection to WebSocket for" << socket->peerAddress().toString();
         disconnect(socket, &QTcpSocket::readyRead, this, &MuxServer::onReadyRead);
         webSocketServer->handleConnection(socket);
     } else {
@@ -40,6 +47,7 @@ void MuxServer::onReadyRead() {
 }
 
 void MuxServer::serveHttp(QTcpSocket *socket) {
+    qDebug() << "Serving HTTP request to:" << socket->peerAddress().toString();
     const QByteArray request = socket->readAll();
 
     QFile file("index.html");
@@ -48,6 +56,7 @@ void MuxServer::serveHttp(QTcpSocket *socket) {
     if (file.open(QIODevice::ReadOnly)) {
         body = file.readAll();
     } else {
+        qWarning() << "Could not open index.html";
         body = "<h1>404 Not Found</h1>";
     }
 
@@ -71,12 +80,15 @@ Server::Server(QObject *parent) : QObject(parent), webSocketServer("smvcar-serve
     connect(&webSocketServer, &QWebSocketServer::newConnection, this, &Server::newConnection);
 
     if (!tcpServer.listen(QHostAddress::Any, port)) {
+        qCritical() << "Server failed to listen on port" << port;
         return;
     }
+    qInfo() << "Server listening on port" << port;
 }
 
 void Server::newConnection() {
     QWebSocket* client = webSocketServer.nextPendingConnection();
+    qInfo() << "Client connected:" << client->peerAddress().toString() << client->peerPort();
     client->setParent(this);
     clients.append(client);
     connect(client, &QWebSocket::textMessageReceived, this, &Server::processMessage);
@@ -90,6 +102,7 @@ void Server::processMessage(const QString& message) {
     QJsonDocument document = QJsonDocument::fromJson(message.toUtf8());
 
     if (document.isNull() || !document.isObject()) {
+        qWarning() << "Received invalid JSON from" << client->peerAddress().toString() << ":" << message;
         return;
     }
 
@@ -97,7 +110,10 @@ void Server::processMessage(const QString& message) {
     QString function = command[FUNCTION].toString();
 
     // Reject commands that have been seen before
-    if (invalidCommands.contains(command[COMMAND_ID].toString())) { return; }
+    if (invalidCommands.contains(command[COMMAND_ID].toString())) {
+        qDebug() << "Ignoring duplicate command" << command[COMMAND_ID].toString();
+        return;
+    }
 
     invalidCommands.insert(command[COMMAND_ID].toString());
 
@@ -141,6 +157,7 @@ void Server::processMessage(const QString& message) {
 
     // If stopwatch is not running, we reject the lap command.
     if (!isRunning) {
+        qDebug() << "Rejecting lap command because stopwatch is not running.";
         sendRejectMessage(client, command[COMMAND_ID].toString());
         return;
     }
@@ -158,6 +175,7 @@ void Server::processMessage(const QString& message) {
         QDateTime currentTimestamp = QDateTime::fromString(events[i][TIMESTAMP].toString(), Qt::ISODateWithMs);
         if (previousTimestamp.msecsTo(currentTimestamp) < 5000) {
             QString commandId = events[i][COMMAND_ID].toString();
+            qDebug() << "Found command" << commandId << "too close to previous command. Invalidating.";
             // If the invalid command is the one we just received, then just reject it and continue.
             if (commandId == command[COMMAND_ID].toString()) {
                 sendRejectMessage(client, commandId);
@@ -186,10 +204,12 @@ void Server::sendRejectMessage(QWebSocket* client, const QString& messageId) {
     message[FUNCTION] = REJECT;
     message[COMMAND_ID] = messageId;
     QString messageString = QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact));
+    qDebug() << "Sending reject for command" << messageId << "to" << client->peerAddress().toString();
     client->sendTextMessage(messageString);
 }
 
 void Server::invalidateCommand(const QString& commandId) {
+    qDebug() << "Invalidating command" << commandId << "for all clients.";
     for (QWebSocket* client : clients) {
         sendRejectMessage(client, commandId);
     }
@@ -229,6 +249,7 @@ void Server::clientDisconnected() {
     // sender() retrieves the object that sent the signal
     QWebSocket* client = qobject_cast<QWebSocket*>(sender());
     if (client) {
+        qInfo() << "Client disconnected:" << client->peerAddress().toString() << client->peerPort();
         clients.removeAll(client);
         client->deleteLater();
     }
