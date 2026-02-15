@@ -12,7 +12,7 @@
 #include <QFile>
 
 // Single TCP server that routes connections to HTTP or WebSocket handling.
-// NOTE: This part written by AI (It's a lotta boilerplate and I don't wanna do it).
+// NOTE: This part written by AI (it's a lot of boilerplate and I don't wanna do it).
 class MuxServer : public QTcpServer {
     Q_OBJECT
 public:
