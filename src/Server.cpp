@@ -1,5 +1,17 @@
 #include "../include/Server.h"
 
+const QString COMMAND_ID = "command_id";
+const QString FUNCTION = "function";
+const QString TIMESTAMP = "timestamp";
+const QString REJECT = "reject";
+const QString START_STOPWATCH = "startStopwatch";
+const QString STOP_STOPWATCH = "stopStopwatch";
+const QString RESET_STOPWATCH = "resetStopwatch";
+const QString SET_PREFIX = "setPrefix";
+const QString SET_TARGET_LAPS = "setTargetLaps";
+const QString SET_TARGET_TIME = "setTargetTime";
+const QString MESSAGE_PREFIX = "message_prefix";
+
 // NOTE: This is my first time writing complex networking logic, so this whole thing is a bit of a mess.
 
 MuxServer::MuxServer(QWebSocketServer* webSocketServer, QObject* parent)
@@ -82,34 +94,34 @@ void Server::processMessage(const QString& message) {
     }
 
     QJsonObject command = document.object();
-    QString function = command["function"].toString();
+    QString function = command[FUNCTION].toString();
 
-    if (invalidCommands.contains(command["command_id"].toString())) { return; }
+    if (invalidCommands.contains(command[COMMAND_ID].toString())) { return; }
 
-    invalidCommands.insert(command["command_id"].toString());
+    invalidCommands.insert(command[COMMAND_ID].toString());
 
     // If it's any of these commands, just confirm the message automatically.
-    if (function == "startStopwatch") {
+    if (function == START_STOPWATCH) {
         events.append(command);
         sendMessage(message);
         return;
     }
-    if (function == "stopStopwatch") {
+    if (function == STOP_STOPWATCH) {
         events.append(command);
         sendMessage(message);
         return;
     }
-    if (function == "resetStopwatch") {
+    if (function == RESET_STOPWATCH) {
         events.clear();
         sendMessage(message);
         return;
     }
-    if (function == "setTargetLaps") {
+    if (function == SET_TARGET_LAPS) {
         targetLapsMessage = message;
         sendMessage(message);
         return;
     }
-    if (function == "setTargetTime") {
+    if (function == SET_TARGET_TIME) {
         targetTimeMessage = message;
         sendMessage(message);
         return;
@@ -119,17 +131,17 @@ void Server::processMessage(const QString& message) {
 
     // Sort the list
     std::sort(events.begin(), events.end(), [](const QJsonObject& a, const QJsonObject& b) {
-        return QDateTime::fromString(a["timestamp"].toString(), Qt::ISODateWithMs) < QDateTime::fromString(b["timestamp"].toString(), Qt::ISODateWithMs);
+        return QDateTime::fromString(a[TIMESTAMP].toString(), Qt::ISODateWithMs) < QDateTime::fromString(b[TIMESTAMP].toString(), Qt::ISODateWithMs);
     });
 
     // Check for any commands within 15 seconds of each other
     for (int i = 1; i < events.size(); i++) {
-        QDateTime previousTimestamp = QDateTime::fromString(events[i - 1]["timestamp"].toString(), Qt::ISODateWithMs);
-        QDateTime currentTimestamp = QDateTime::fromString(events[i]["timestamp"].toString(), Qt::ISODateWithMs);
+        QDateTime previousTimestamp = QDateTime::fromString(events[i - 1][TIMESTAMP].toString(), Qt::ISODateWithMs);
+        QDateTime currentTimestamp = QDateTime::fromString(events[i][TIMESTAMP].toString(), Qt::ISODateWithMs);
         if (previousTimestamp.msecsTo(currentTimestamp) < 15000) {
-            QString commandId = events[i]["command_id"].toString();
+            QString commandId = events[i][COMMAND_ID].toString();
             // If the invalid command is the one we just received, then just reject it and continue.
-            if (commandId == command["command_id"].toString()) {
+            if (commandId == command[COMMAND_ID].toString()) {
                 sendRejectMessage(client, commandId);
             } else { // If the invalid command is one that was previously validated, we need to remove it from all clients.
                 invalidateCommand(commandId);
@@ -153,8 +165,8 @@ void Server::sendMessage(const QString &message) {
 
 void Server::sendRejectMessage(QWebSocket* client, const QString& messageId) {
     QJsonObject message;
-    message["function"] = "reject";
-    message["command_id"] = messageId;
+    message[FUNCTION] = REJECT;
+    message[COMMAND_ID] = messageId;
     QString messageString = QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact));
     client->sendTextMessage(messageString);
 }
@@ -177,8 +189,8 @@ void Server::sendBacklog(QWebSocket* client) {
     // Separate scopes so I can use the same name multiple times
     {
         QJsonObject message;
-        message["function"] = "setPrefix";
-        message["message_prefix"] = QString(nextMessagePrefix);
+        message[FUNCTION] = SET_PREFIX;
+        message[MESSAGE_PREFIX] = QString(nextMessagePrefix);
         QString messageString = QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact));
         client->sendTextMessage(messageString);
     }
