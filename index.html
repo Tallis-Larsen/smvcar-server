@@ -529,12 +529,13 @@
             const lapNumber = rows.length - i;
 
             // Active row: always live-updating from its own timestamp (handled by updateTime)
-            // Completed rows: fixed split time vs the next older row, colored by pace
+            // Completed rows: split = the row above (more recent) minus this row's timestamp.
+            // i-1 always exists here since active is i=0 and completed starts at i=1.
             let lapTimeStr = '00:00.00';
             let paceClass  = '';
 
-            if (!isActive && i < rows.length - 1) {
-                const lapMs = rows[i].timestamp - rows[i + 1].timestamp;
+            if (!isActive) {
+                const lapMs = rows[i - 1].timestamp - rows[i].timestamp;
                 lapTimeStr = formatTime(lapMs);
                 if (avg !== null) {
                     paceClass = lapMs <= avg ? 'ahead' : 'behind';
