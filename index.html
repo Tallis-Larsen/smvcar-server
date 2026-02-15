@@ -6,212 +6,314 @@
     <title>SMVCar-Server Remote</title>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 20px; }
-        .controls, .laps { margin-bottom: 20px; }
+        .controls { margin-bottom: 20px; }
         .control-group { margin-bottom: 10px; }
         button { margin-left: 5px; }
         #lap-table { border-collapse: collapse; width: 300px; }
         #lap-table th, #lap-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         #lap-table th { background-color: #f2f2f2; }
         #status { font-weight: bold; }
+        #total-time { font-size: 2em; font-weight: bold; margin-bottom: 10px; }
+        #lap-time { font-size: 1.4em; margin-bottom: 20px; color: #555; }
     </style>
 </head>
 <body>
 
-    <h1>Stopwatch Remote</h1>
-    <p>Connection Status: <span id="status">Disconnected</span></p>
+<h1>Stopwatch Remote</h1>
+<p>Connection Status: <span id="status">Disconnected</span></p>
 
-    <div class="controls">
-        <div class="control-group">
-            <button id="lap-button" style="width: 200px; height: 50px; font-size: 20px;">Lap</button>
-        </div>
-        <div class="control-group">
-            <label for="target-laps">Target Laps:</label>
-            <input type="number" id="target-laps" name="target-laps" min="1">
-            <button id="set-target-laps-button">Set</button>
-        </div>
-        <div class="control-group">
-            <label for="target-time">Target Time (minutes):</label>
-            <input type="number" id="target-time" name="target-time" min="1">
-            <button id="set-target-time-button">Set</button>
-        </div>
+<div id="total-time">00:00.00</div>
+<div id="lap-time">Lap: 00:00.00</div>
+
+<div class="controls">
+    <div class="control-group">
+        <button id="lap-button" style="width: 200px; height: 50px; font-size: 20px;">Lap</button>
     </div>
-
-    <div class="laps">
-        <h2>Laps</h2>
-        <table id="lap-table">
-            <thead>
-                <tr>
-                    <th>Lap</th>
-                    <th>Time</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Lap data will be inserted here -->
-            </tbody>
-        </table>
+    <div class="control-group">
+        <label for="target-laps">Target Laps:</label>
+        <input type="number" id="target-laps" min="1">
+        <button id="set-target-laps-button">Set</button>
     </div>
+    <div class="control-group">
+        <label for="target-time">Target Time (minutes):</label>
+        <input type="number" id="target-time" min="1">
+        <button id="set-target-time-button">Set</button>
+    </div>
+</div>
 
-    <script>
-        const statusEl = document.getElementById('status');
-        const lapButton = document.getElementById('lap-button');
-        const setTargetLapsButton = document.getElementById('set-target-laps-button');
-        const targetLapsInput = document.getElementById('target-laps');
-        const setTargetTimeButton = document.getElementById('set-target-time-button');
-        const targetTimeInput = document.getElementById('target-time');
-        const lapTableBody = document.querySelector('#lap-table tbody');
+<div>
+    <h2>Laps</h2>
+    <table id="lap-table">
+        <thead>
+        <tr>
+            <th>Lap #</th>
+            <th>Time</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
 
-        let socket;
-        let messageIdPrefix = '';
-        let nextMessageId = 0;
-        let clientId = -1;
+<script>
+    const statusEl = document.getElementById('status');
+    const lapButton = document.getElementById('lap-button');
+    const setTargetLapsButton = document.getElementById('set-target-laps-button');
+    const targetLapsInput = document.getElementById('target-laps');
+    const setTargetTimeButton = document.getElementById('set-target-time-button');
+    const targetTimeInput = document.getElementById('target-time');
+    const lapTableBody = document.querySelector('#lap-table tbody');
+    const totalTimeEl = document.getElementById('total-time');
+    const lapTimeEl = document.getElementById('lap-time');
 
-        function connect() {
-            // Use ws:// or wss:// depending on the page protocol
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const host = window.location.host;
-            socket = new WebSocket(`${protocol}//${host}`);
+    let socket;
+    let messageIdPrefix = '';
+    let nextMessageId = 0;
 
-            socket.onopen = () => {
-                statusEl.textContent = 'Connected';
-                statusEl.style.color = 'green';
-            };
+    // Mirrors the C++ client's row data — keyed by commandId
+    // Each entry: { timestamp: Date, commandId: string }
+    let rows = [];
 
-            socket.onclose = () => {
-                statusEl.textContent = 'Disconnected';
-                statusEl.style.color = 'red';
-                // Try to reconnect after 3 seconds
-                setTimeout(connect, 3000);
-            };
+    // Mirrors isRunning in LapStopwatch
+    let isRunning = false;
+    let updateInterval = null;
 
-            socket.onmessage = (event) => {
-                const command = JSON.parse(event.data);
-                handleServerMessage(command);
-            };
+    // ---- WebSocket connection ----
 
-            socket.onerror = (error) => {
-                console.error('WebSocket Error:', error);
-                socket.close();
-            };
-        }
+    function connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${protocol}//${window.location.host}`;
+        console.log(`[WS] Connecting to ${url}`);
+        socket = new WebSocket(url);
 
-        function sendMessage(message) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify(message));
-            } else {
-                console.warn('WebSocket is not connected. Message not sent:', message);
+        socket.onopen = () => {
+            console.log('[WS] Connected');
+            statusEl.textContent = 'Connected';
+            statusEl.style.color = 'green';
+        };
+
+        socket.onclose = (event) => {
+            console.warn(`[WS] Disconnected - code: ${event.code}, reason: "${event.reason}"`);
+            statusEl.textContent = 'Disconnected';
+            statusEl.style.color = 'red';
+            setTimeout(connect, 3000);
+        };
+
+        socket.onmessage = (event) => {
+            console.log('[WS] Received:', event.data);
+            const command = JSON.parse(event.data);
+            processMessage(command);
+        };
+
+        socket.onerror = (error) => {
+            console.error('[WS] Error:', error);
+            socket.close();
+        };
+    }
+
+    // ---- Message handling (mirrors ServerAPI::processMessage) ----
+
+    // pendingMessages queue — mirrors ServerAPI::pendingMessages
+    let pendingMessages = [];
+
+    function processMessage(command) {
+        const messageString = JSON.stringify(command);
+
+        // Check if this is a response to something we sent
+        const pendingIndex = pendingMessages.findIndex(msg => {
+            const pending = JSON.parse(msg);
+            return pending.command_id && pending.command_id === command.command_id;
+        });
+
+        if (pendingIndex !== -1) {
+            console.log(`[WS] Matched pending command_id: ${command.command_id}`);
+            if (command.function === 'reject') {
+                console.warn(`[WS] Reject received for ${command.command_id}`);
+                removeRow(command.command_id);
             }
+            pendingMessages.splice(pendingIndex, 1);
+            return;
         }
 
-        function nextCommandId() {
-            return `${messageIdPrefix}${nextMessageId++}`;
+        // Not in pending — came from server (backlog or another client)
+        const func = command.function;
+        console.log(`[WS] Processing server message: ${func}`);
+
+        if (func === 'setPrefix') {
+            messageIdPrefix = command.message_prefix;
+            console.log(`[WS] Prefix set to: ${messageIdPrefix}`);
+        } else if (func === 'setTargetLaps') {
+            targetLapsInput.value = command.target_laps;
+        } else if (func === 'setTargetTime') {
+            targetTimeInput.value = command.target_time;
+        } else if (func === 'startStopwatch') {
+            // Mirrors LapStopwatch::start(time, id)
+            const time = new Date(command.timestamp);
+            addRow(time, command.command_id);
+            startTimer();
+        } else if (func === 'stopStopwatch') {
+            // Mirrors LapStopwatch::stop()
+            stopTimer();
+        } else if (func === 'lap') {
+            const time = new Date(command.timestamp);
+            addRow(time, command.command_id);
+        } else if (func === 'resetStopwatch') {
+            reset();
         }
+    }
 
-        function handleServerMessage(command) {
-            const { function: func, command_id } = command;
+    // ---- Timer (mirrors LapStopwatch::updateTimer) ----
 
-            if (func === 'setId') {
-                clientId = command.client_id;
-            } else if (func === 'setPrefix') {
-                messageIdPrefix = command.message_prefix;
-            } else if (func === 'addLap') {
-                addLapRow(command.timestamp, command_id);
-            } else if (func === 'removeLap') {
-                removeLapRow(command_id);
-            } else if (func === 'reject') {
-                // The C++ client removes the lap on reject.
-                removeLapRow(command.command_id);
-            }
-            // The other functions from the C++ client seem to be for the stopwatch display logic,
-            // which this client doesn't have. The server will send 'addLap' which contains the timestamp.
-            // The client should then calculate the lap times itself based on the timestamps.
+    function startTimer() {
+        isRunning = true;
+        if (updateInterval) clearInterval(updateInterval);
+        updateInterval = setInterval(updateTime, 50);
+        updateTime();
+    }
+
+    function stopTimer() {
+        isRunning = false;
+        if (updateInterval) {
+            clearInterval(updateInterval);
+            updateInterval = null;
+        }
+        updateTime(); // one last update, mirrors C++ client
+    }
+
+    function formatTime(ms) {
+        const minutes = String(Math.floor(ms / 60000)).padStart(2, '0');
+        const seconds = String(Math.floor((ms % 60000) / 1000)).padStart(2, '0');
+        const centiseconds = String(Math.floor((ms % 1000) / 10)).padStart(2, '0');
+        return `${minutes}:${seconds}.${centiseconds}`;
+    }
+
+    function updateTime() {
+        if (rows.length === 0) return;
+
+        const now = new Date();
+
+        // Total time from start row (last in sorted order = oldest = start)
+        const startTime = rows[rows.length - 1].timestamp;
+        totalTimeEl.textContent = formatTime(now - startTime);
+
+        // Active lap time from the most recent row (first in sorted order)
+        const lapStartTime = rows[0].timestamp;
+        lapTimeEl.textContent = 'Lap: ' + formatTime(now - lapStartTime);
+    }
+
+    // ---- Row management (mirrors LapStopwatch::addRow / removeRow / recalculateTable) ----
+
+    function addRow(timestamp, commandId) {
+        console.log(`[UI] addRow - commandId: ${commandId}, timestamp: ${timestamp}`);
+        rows.push({ timestamp, commandId });
+        recalculateTable();
+    }
+
+    function removeRow(commandId) {
+        const index = rows.findIndex(r => r.commandId === commandId);
+        if (index !== -1) {
+            console.log(`[UI] removeRow - commandId: ${commandId}`);
+            rows.splice(index, 1);
             recalculateTable();
+        } else {
+            console.warn(`[UI] removeRow - no row found for commandId: ${commandId}`);
         }
+    }
 
-        function addLapRow(timestamp, commandId) {
+    function reset() {
+        console.log('[UI] reset');
+        rows = [];
+        stopTimer();
+        totalTimeEl.textContent = '00:00.00';
+        lapTimeEl.textContent = 'Lap: 00:00.00';
+        lapTableBody.innerHTML = '';
+    }
+
+    function recalculateTable() {
+        // Sort descending by timestamp (newest first) — mirrors sortByColumn descending
+        rows.sort((a, b) => b.timestamp - a.timestamp);
+
+        lapTableBody.innerHTML = '';
+
+        for (let i = 0; i < rows.length; i++) {
             const row = document.createElement('tr');
-            row.dataset.commandId = commandId;
-            row.dataset.timestamp = timestamp;
-            row.innerHTML = `
-                <td>-</td>
-                <td>-</td>
-            `;
-            // Insert at the top
-            lapTableBody.insertBefore(row, lapTableBody.firstChild);
+            const lapNumber = rows.length - i;
+
+            let lapTimeStr = '00:00.00';
+            if (i < rows.length - 1) {
+                // Time between this row and the previous (older) one
+                const diffMs = rows[i].timestamp - rows[i + 1].timestamp;
+                lapTimeStr = formatTime(diffMs);
+            }
+
+            row.innerHTML = `<td>${lapNumber}</td><td>${lapTimeStr}</td>`;
+            row.dataset.commandId = rows[i].commandId;
+            lapTableBody.appendChild(row);
         }
+    }
 
-        function removeLapRow(commandId) {
-            const row = lapTableBody.querySelector(`tr[data-command-id="${commandId}"]`);
-            if (row) {
-                row.remove();
-            }
+    // ---- Sending messages (mirrors ServerAPI::sendMessage) ----
+
+    function nextCommandId() {
+        return `${messageIdPrefix}${nextMessageId++}`;
+    }
+
+    function sendMessage(message) {
+        const str = JSON.stringify(message);
+        console.log('[WS] Sending:', str);
+        flushQueue();
+        pendingMessages.push(str);
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(str);
+        } else {
+            console.warn('[WS] Not connected, message queued');
         }
+    }
 
-        function recalculateTable() {
-            const rows = Array.from(lapTableBody.querySelectorAll('tr'));
-            // Sort by timestamp descending to get laps in order
-            rows.sort((a, b) => new Date(b.dataset.timestamp) - new Date(a.dataset.timestamp));
-
-            // Clear and re-add sorted rows
-            lapTableBody.innerHTML = '';
-            rows.forEach(row => lapTableBody.appendChild(row));
-
-            // Recalculate lap numbers and times
-            for (let i = 0; i < rows.length; i++) {
-                const currentRow = rows[i];
-                const lapNumber = rows.length - i;
-                currentRow.cells[0].textContent = lapNumber;
-
-                if (i < rows.length - 1) {
-                    const previousRow = rows[i + 1];
-                    const lapStartTime = new Date(previousRow.dataset.timestamp);
-                    const lapEndTime = new Date(currentRow.dataset.timestamp);
-                    const diffMs = lapEndTime - lapStartTime;
-
-                    const minutes = String(Math.floor(diffMs / 60000)).padStart(2, '0');
-                    const seconds = String(Math.floor((diffMs % 60000) / 1000)).padStart(2, '0');
-                    const centiseconds = String(Math.floor((diffMs % 1000) / 10)).padStart(2, '0');
-
-                    currentRow.cells[1].textContent = `${minutes}:${seconds}.${centiseconds}`;
-                } else {
-                    // First lap has no previous lap to compare to
-                    currentRow.cells[1].textContent = '00:00.00';
-                }
-            }
+    function flushQueue() {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        for (const msg of pendingMessages) {
+            console.log('[WS] Flushing queued message:', msg);
+            socket.send(msg);
         }
+    }
 
+    // ---- Button handlers ----
 
-        lapButton.onclick = () => {
-            const message = {
-                function: 'lap',
-                timestamp: new Date().toISOString(),
-                command_id: nextCommandId()
-            };
-            sendMessage(message);
-        };
+    lapButton.onclick = () => {
+        const time = new Date();
+        const commandId = nextCommandId();
+        console.log(`[UI] Lap button - commandId: ${commandId}`);
 
-        setTargetLapsButton.onclick = () => {
-            const laps = parseInt(targetLapsInput.value, 10);
-            if (!isNaN(laps) && laps > 0) {
-                sendMessage({
-                    function: 'setTargetLaps',
-                    target_laps: laps
-                });
-            }
-        };
+        // Add locally immediately, mirrors LapStopwatch::lap()
+        addRow(time, commandId);
 
-        setTargetTimeButton.onclick = () => {
-            const time = parseInt(targetTimeInput.value, 10);
-            if (!isNaN(time) && time > 0) {
-                sendMessage({
-                    function: 'setTargetTime',
-                    target_time: time // Sending as minutes
-                });
-            }
-        };
+        sendMessage({
+            function: 'lap',
+            timestamp: time.toISOString(),
+            command_id: commandId
+        });
+    };
 
-        // Initial connection
-        connect();
-    </script>
+    setTargetLapsButton.onclick = () => {
+        const laps = parseInt(targetLapsInput.value, 10);
+        if (!isNaN(laps) && laps > 0) {
+            sendMessage({ function: 'setTargetLaps', target_laps: laps, command_id: nextCommandId() });
+        } else {
+            console.warn('[UI] Invalid target laps value');
+        }
+    };
+
+    setTargetTimeButton.onclick = () => {
+        const time = parseInt(targetTimeInput.value, 10);
+        if (!isNaN(time) && time > 0) {
+            sendMessage({ function: 'setTargetTime', target_time: time, command_id: nextCommandId() });
+        } else {
+            console.warn('[UI] Invalid target time value');
+        }
+    };
+
+    connect();
+</script>
 
 </body>
 </html>
