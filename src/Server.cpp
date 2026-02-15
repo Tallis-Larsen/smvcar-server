@@ -138,7 +138,7 @@ void Server::processMessage(const QString& message) {
     for (int i = 1; i < events.size(); i++) {
         QDateTime previousTimestamp = QDateTime::fromString(events[i - 1][TIMESTAMP].toString(), Qt::ISODateWithMs);
         QDateTime currentTimestamp = QDateTime::fromString(events[i][TIMESTAMP].toString(), Qt::ISODateWithMs);
-        if (previousTimestamp.msecsTo(currentTimestamp) < 15000) {
+        if (previousTimestamp.msecsTo(currentTimestamp) < 5000) {
             QString commandId = events[i][COMMAND_ID].toString();
             // If the invalid command is the one we just received, then just reject it and continue.
             if (commandId == command[COMMAND_ID].toString()) {
