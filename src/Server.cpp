@@ -96,6 +96,7 @@ void Server::processMessage(const QString& message) {
     QJsonObject command = document.object();
     QString function = command[FUNCTION].toString();
 
+    // Reject commands that have been seen before
     if (invalidCommands.contains(command[COMMAND_ID].toString())) { return; }
 
     invalidCommands.insert(command[COMMAND_ID].toString());

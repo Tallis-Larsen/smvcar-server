@@ -260,9 +260,6 @@
             color: var(--text);
         }
 
-        /* Active lap is always neutral white — it's still in progress */
-        .lap-row.active .lap-time { color: var(--text); }
-
         /* Completed laps colored by pace vs target average */
         .lap-time.ahead  { color: var(--green); }
         .lap-time.behind { color: var(--red); }
@@ -312,6 +309,10 @@
                 </div>
             </div>
         </div>
+        <div id="avg-lap-display" style="display:none;">
+            <div class="setting-label">Target Lap Average</div>
+            <div style="font-family: var(--mono); font-size: 18px; color: var(--text); padding-top: 2px;" id="avg-lap-value">--:--.--.--</div>
+        </div>
     </div>
 
     <div class="table-container">
@@ -334,6 +335,8 @@
     const emptyState   = document.getElementById('empty-state');
     const targetLapsInput = document.getElementById('target-laps');
     const targetTimeInput = document.getElementById('target-time');
+    const avgLapDisplay   = document.getElementById('avg-lap-display');
+    const avgLapValue     = document.getElementById('avg-lap-value');
 
     let socket;
     let messageIdPrefix = '';
@@ -349,7 +352,16 @@
 
     // Returns target lap average in ms, or null if either value is missing
     function targetLapAvgMs() {
-        if (targetLaps && targetTimeMs) return targetTimeMs / targetLaps;
+        if (targetLaps && targetTimeMs) {
+            const avg = targetTimeMs / targetLaps;
+            avgLapDisplay.style.display = 'block';
+            // Average shown without centiseconds — MM:SS is precise enough
+            const minutes = String(Math.floor(avg / 60000)).padStart(2, '0');
+            const seconds = String(Math.floor((avg % 60000) / 1000)).padStart(2, '0');
+            avgLapValue.textContent = `${minutes}:${seconds}`;
+            return avg;
+        }
+        avgLapDisplay.style.display = 'none';
         return null;
     }
 
@@ -458,7 +470,17 @@
 
         const activeRowEl = lapTableBody.querySelector('.lap-row.active');
         if (activeRowEl && isRunning) {
-            activeRowEl.querySelector('.lap-time').textContent = formatTime(now - rows[0].timestamp);
+            const lapMs = now - rows[0].timestamp;
+            activeRowEl.querySelector('.lap-time').textContent = formatTime(lapMs);
+
+            // Color the active lap live: green while under average, red once over
+            const avg = targetLapAvgMs();
+            const lapTimeEl = activeRowEl.querySelector('.lap-time');
+            if (avg !== null) {
+                lapTimeEl.className = 'lap-time ' + (lapMs <= avg ? 'ahead' : 'behind');
+            } else {
+                lapTimeEl.className = 'lap-time';
+            }
         }
     }
 
@@ -506,12 +528,12 @@
 
             const lapNumber = rows.length - i;
 
-            // Active lap: live-updating, no pace color yet
-            // Completed laps: fixed split time, green if at/under average, red if over
+            // Active row: always live-updating from its own timestamp (handled by updateTime)
+            // Completed rows: fixed split time vs the next older row, colored by pace
             let lapTimeStr = '00:00.00';
             let paceClass  = '';
 
-            if (!isActive) {
+            if (!isActive && i < rows.length - 1) {
                 const lapMs = rows[i].timestamp - rows[i + 1].timestamp;
                 lapTimeStr = formatTime(lapMs);
                 if (avg !== null) {
