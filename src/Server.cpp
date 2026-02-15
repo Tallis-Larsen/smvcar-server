@@ -78,7 +78,6 @@ void Server::processMessage(const QString& message) {
     QJsonDocument document = QJsonDocument::fromJson(message.toUtf8());
 
     if (document.isNull() || !document.isObject()) {
-        qWarning() << "Received invalid JSON";
         return;
     }
 
