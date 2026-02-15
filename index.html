@@ -56,7 +56,7 @@
         .topbar-title {
             font-family: var(--sans);
             font-weight: 700;
-            font-size: 14px;
+            font-size: 15px;
             text-transform: uppercase;
             letter-spacing: 0.3em;
             color: var(--accent);
@@ -66,7 +66,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 11px;
+            font-size: 15px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.2em;
@@ -74,8 +74,8 @@
         }
 
         .status-dot {
-            width: 7px;
-            height: 7px;
+            width: 15px;
+            height: 15px;
             border-radius: 50%;
             background: var(--red);
             transition: background 0.3s;
@@ -377,13 +377,13 @@
 
         socket.onopen = () => {
             console.log('[WS] Connected');
-            statusEl.textContent = 'Online';
+            statusEl.textContent = 'Connected';
             statusDot.classList.add('connected');
         };
 
         socket.onclose = (e) => {
             console.warn(`[WS] Disconnected - code: ${e.code}`);
-            statusEl.textContent = 'Offline';
+            statusEl.textContent = 'Disconnected';
             statusDot.classList.remove('connected');
             setTimeout(connect, 3000);
         };
