@@ -12,7 +12,7 @@ After you're redirected, it's pretty much as easy as logging in, clicking `Creat
 
 The server should build and deploy automatically. It would be a good idea to go to the app dashboard and restart the server before a race, though.
 
-The app dashboard also provides the link to the HTML client interface. This is the same link you will use on the Raspberry Pi client to connect to the server, except with `wss://` instead of `https://`. Example:
+The app dashboard also provides the link to the HTML client interface. This is the same link you will use on the Raspberry Pi client to connect to the server, except with `wss://` instead of `https://`. For example:
 
 `https://smvcar-server-iesb4.ondigitalocean.app/`
 
