@@ -1,0 +1,23 @@
+spec:
+  name: smvcar-server
+  region: nyc
+  services:
+    - name: smvcar-server
+      dockerfile_path: Dockerfile
+      github:
+        branch: main
+        repo: Tallis-Larsen/smvcar-server
+        deploy_on_push: true
+      instance_size_slug: apps-s-1vcpu-0.5gb
+      http_port: 8080
+      envs:
+        - key: PORT
+          value: "8080"
+          scope: RUN_TIME
+          type: GENERAL
+      health_check:
+        http_path: /
+        initial_delay_seconds: 20
+      routes:
+        - path: /
+          preserve_path_prefix: false

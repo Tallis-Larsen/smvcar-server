@@ -9,7 +9,7 @@ services:
     github:
       branch: main
       repo: Tallis-Larsen/smvcar-server
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     http_port: 8080
     envs:
       - key: PORT
