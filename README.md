@@ -14,11 +14,11 @@ The server should build and deploy automatically. It would be a good idea to go 
 
 The app dashboard also provides the link to the HTML client interface. This is the same link you will use on the Raspberry Pi client to connect to the server, except with `wss://` instead of `https://`. For example:
 
-`https://smvcar-server-iesb4.ondigitalocean.app/`
+> `https://smvcar-server-iesb4.ondigitalocean.app/`
 
 becomes:
 
-`wss://smvcar-server-iesb4.ondigitalocean.app/`
+> `wss://smvcar-server-iesb4.ondigitalocean.app/`
 
 Don't get confused: the HTML client (the one the "pit crew" uses) will still be accessed through the normal https link.
 
