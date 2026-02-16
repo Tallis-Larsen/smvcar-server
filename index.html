@@ -439,6 +439,8 @@
             addRow(new Date(command.timestamp), command.command_id);
         } else if (func === 'resetStopwatch') {
             reset();
+        } else if (func === 'reject') {
+            removeRow(command.command_id);
         }
     }
 
